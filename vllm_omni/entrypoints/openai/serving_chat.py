@@ -63,20 +63,12 @@ from vllm.entrypoints.openai.parser.harmony_utils import (
 from vllm.entrypoints.openai.responses.protocol import ResponsesRequest
 from vllm.entrypoints.openai.utils import maybe_filter_parallel_tool_calls
 from vllm.entrypoints.utils import should_include_usage
-from vllm.inputs.data import PromptType, TokensPrompt
+from vllm.inputs.data import PromptType
 from vllm.logger import init_logger
 from vllm.outputs import RequestOutput
 from vllm.reasoning import ReasoningParser
-from vllm.renderers.hf import (
-    resolve_chat_template_content_format,
-)
-from vllm.renderers.hf import (
-    safe_apply_chat_template as apply_hf_chat_template,
-)
+from vllm.renderers import merge_kwargs
 from vllm.renderers.inputs import TokPrompt
-from vllm.renderers.mistral import (
-    safe_apply_chat_template as apply_mistral_chat_template,
-)
 from vllm.sampling_params import SamplingParams
 from vllm.tokenizers import TokenizerLike
 from vllm.tokenizers import TokenizerLike as AnyTokenizer
@@ -88,9 +80,8 @@ from vllm.tokenizers.mistral import (
 )
 from vllm.tool_parsers import ToolParser
 from vllm.tool_parsers.mistral_tool_parser import MistralToolCall
-from vllm.utils.collection_utils import as_list, is_list_of
+from vllm.utils.collection_utils import as_list
 
-from vllm_omni.entrypoints.chat_utils import parse_chat_messages_futures
 from vllm_omni.entrypoints.openai.audio_utils_mixin import AudioMixin
 from vllm_omni.entrypoints.openai.protocol import OmniChatCompletionStreamResponse
 from vllm_omni.entrypoints.openai.protocol.audio import AudioResponse, CreateAudio
@@ -357,74 +348,39 @@ class OmniOpenAIServingChat(OpenAIServingChat, AudioMixin):
         documents: list[dict[str, str]] | None = None,
         add_special_tokens: bool = False,
     ) -> tuple[list[ConversationMessage], list[TokPrompt]]:
-        model_config = self.model_config
-        # OMNI: Use self.renderer if renderer not provided (vLLM new API)
         if renderer is None:
             renderer = self.renderer
-        tokenizer = renderer.get_tokenizer() if renderer is not None else None
 
-        # Map new parameter names to internal variables
-        chat_template = default_template
-        chat_template_content_format = default_template_content_format
-
-        if tokenizer is None or isinstance(tokenizer, MistralTokenizer):
-            resolved_content_format = (
-                chat_template_content_format if chat_template_content_format != "auto" else "string"
-            )
-        else:
-            resolved_content_format = resolve_chat_template_content_format(
-                chat_template,
-                tool_dicts,
-                chat_template_content_format,
-                tokenizer,
-                model_config=model_config,
-            )
-        # OMNI: Updated for vLLM v0.15.0 API - resolve_items() returns (mm_data, mm_uuids) tuple
-        conversation, mm_future = parse_chat_messages_futures(
-            messages,
-            model_config,
-            content_format=resolved_content_format,
-            mm_processor_kwargs=getattr(request, "mm_processor_kwargs", None),
-        )
-
-        # OMNI: Handle merged kwargs - default_template_kwargs replaces the old two-param system
-        merged_kwargs = default_template_kwargs or {}
-
-        _chat_template_kwargs: dict[str, Any] = dict(
-            chat_template=chat_template,
-            add_generation_prompt=add_generation_prompt,
-            continue_final_message=continue_final_message,
-            tools=tool_dicts,
-            documents=documents,
-        )
-        _chat_template_kwargs.update(merged_kwargs)
-
-        request_prompt: str | list[int]
-
-        if tokenizer is None:
-            request_prompt = "placeholder"
-        elif isinstance(tokenizer, MistralTokenizer):
-            request_prompt = apply_mistral_chat_template(
-                tokenizer,
-                messages=messages,
-                **_chat_template_kwargs,
-            )
-        else:
-            hf_chat_template_kwargs = dict(_chat_template_kwargs)
-            hf_chat_template_kwargs.pop("tools", None)
-            hf_chat_template_kwargs.pop("chat_template", None)
-            request_prompt = apply_hf_chat_template(
-                model_config=model_config,
-                tokenizer=tokenizer,
-                conversation=conversation,
+        # Keep OMNI compatibility args wired while delegating rendering
+        # to the upstream async renderer pipeline.
+        default_template_kwargs = merge_kwargs(
+            default_template_kwargs,
+            dict(
                 tools=tool_dicts,
-                chat_template=chat_template,
-                tokenize=False,
-                **hf_chat_template_kwargs,
-            )
+                documents=documents,
+                add_generation_prompt=add_generation_prompt,
+                continue_final_message=continue_final_message,
+                add_special_tokens=add_special_tokens,
+                tokenize=isinstance(renderer.tokenizer, MistralTokenizer),
+            ),
+        )
 
-        # OMNI: Await the combined future to get both mm_data and mm_uuids
-        mm_data, mm_uuids = await mm_future
+        tok_params = request.build_tok_params(self.model_config)
+        chat_params = request.build_chat_params(
+            default_template,
+            default_template_content_format,
+        ).with_defaults(default_template_kwargs)
+
+        (conversation,), (engine_prompt,) = await renderer.render_chat_async(
+            [messages],
+            chat_params,
+            tok_params,
+            prompt_extras={
+                k: v for k in ("mm_processor_kwargs", "cache_salt") if (v := getattr(request, k, None)) is not None
+            },
+        )
+
+        tokenizer = renderer.get_tokenizer()
 
         # tool parsing is done only if a tool_parser has been set and if
         # tool_choice is not "none" (if tool_choice is "none" but a tool_parser
@@ -441,38 +397,6 @@ class OmniOpenAIServingChat(OpenAIServingChat, AudioMixin):
             request = tool_parser(tokenizer).adjust_request(  # type: ignore
                 request=request
             )
-
-        if tokenizer is None:
-            assert isinstance(request_prompt, str), (
-                "Prompt has to be a string",
-                "when the tokenizer is not initialised",
-            )
-            prompt_inputs = TokensPrompt(prompt=request_prompt, prompt_token_ids=[1])
-        elif isinstance(request_prompt, str):
-            # OMNI: Direct tokenization using tokenizer (replaces removed _tokenize_prompt_input_async)
-            prompt_token_ids = tokenizer.encode(request_prompt, add_special_tokens=add_special_tokens)
-            prompt_inputs = TokensPrompt(prompt=request_prompt, prompt_token_ids=prompt_token_ids)
-        else:
-            # For MistralTokenizer
-            assert is_list_of(request_prompt, int), "Prompt has to be either a string or a list of token ids"
-            prompt_inputs = TokensPrompt(
-                prompt=tokenizer.decode(request_prompt),
-                prompt_token_ids=request_prompt,
-            )
-
-        engine_prompt = TokensPrompt(prompt_token_ids=prompt_inputs["prompt_token_ids"])
-        if mm_data is not None:
-            engine_prompt["multi_modal_data"] = mm_data
-
-        if mm_uuids is not None:
-            engine_prompt["multi_modal_uuids"] = mm_uuids
-
-        mm_processor_kwargs = getattr(request, "mm_processor_kwargs", None)
-        if mm_processor_kwargs is not None:
-            engine_prompt["mm_processor_kwargs"] = mm_processor_kwargs
-
-        if hasattr(request, "cache_salt") and request.cache_salt is not None:
-            engine_prompt["cache_salt"] = request.cache_salt
 
         return conversation, [engine_prompt]
 

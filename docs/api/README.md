@@ -31,7 +31,6 @@ Input data structures for multi-modal inputs.
 - [vllm_omni.inputs.data.OmniTextPrompt][]
 - [vllm_omni.inputs.data.OmniTokenInputs][]
 - [vllm_omni.inputs.data.OmniTokensPrompt][]
-- [vllm_omni.inputs.parse.parse_singleton_prompt_omni][]
 - [vllm_omni.inputs.preprocess.OmniInputPreprocessor][]
 
 ## Engine
