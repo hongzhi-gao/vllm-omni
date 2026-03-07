@@ -185,6 +185,20 @@ class OmniLLM(LLM):
         self.model_config = self.llm_engine.model_config
         self.input_processor = self.llm_engine.input_processor
 
+        # Parity with upstream LLM for pooling/classify entrypoints
+        chat_template = kwargs.get("chat_template", None)
+        from vllm.entrypoints.chat_utils import ChatTemplateConfig, load_chat_template
+        from vllm.entrypoints.pooling.io_processor_factories import init_pooling_io_processors
+
+        self.chat_template = load_chat_template(chat_template)
+        self.chat_template_config = ChatTemplateConfig(chat_template=self.chat_template)
+        self.init_pooling_io_processors = init_pooling_io_processors(
+            supported_tasks=supported_tasks,
+            model_config=self.model_config,
+            renderer=self.renderer,
+            chat_template_config=self.chat_template_config,
+        )
+
     # ------------------------------------------------------------------
     # Override upstream _preprocess_cmpl so that omni-specific fields
     # (additional_information, prompt_embeds, …) survive the renderer's
