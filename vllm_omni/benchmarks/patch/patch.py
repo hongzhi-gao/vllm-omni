@@ -16,7 +16,6 @@ from typing import Literal
 import aiohttp
 from pydub import AudioSegment
 from tqdm.asyncio import tqdm
-from transformers import PreTrainedTokenizerBase
 from vllm.benchmarks import datasets
 from vllm.benchmarks.datasets import SampleRequest
 from vllm.benchmarks.lib.endpoint_request_func import (
@@ -31,6 +30,7 @@ from vllm.benchmarks.lib.endpoint_request_func import (
     _validate_api_url,
 )
 from vllm.logger import init_logger
+from vllm.tokenizers import TokenizerLike
 
 logger = init_logger(__name__)
 from vllm_omni.benchmarks.data_modules.random_multi_modal_dataset import OmniRandomMultiModalDataset

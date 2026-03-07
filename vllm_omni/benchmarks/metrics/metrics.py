@@ -2,10 +2,10 @@ import warnings
 from dataclasses import dataclass
 
 import numpy as np
-from transformers import PreTrainedTokenizerBase
 from vllm.benchmarks.datasets import SampleRequest
 from vllm.benchmarks.lib.endpoint_request_func import RequestFuncOutput
 from vllm.benchmarks.serve import MILLISECONDS_TO_SECONDS_CONVERSION, TERM_PLOTLIB_AVAILABLE, BenchmarkMetrics, TaskType
+from vllm.tokenizers import TokenizerLike
 
 
 @dataclass
