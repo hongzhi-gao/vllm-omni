@@ -91,7 +91,7 @@ docker run --runtime nvidia --gpus 2 \
     --env "HF_TOKEN=$HF_TOKEN" \
     -p 8091:8091 \
     --ipc=host \
-    vllm/vllm-omni:v0.17.0 \
+    vllm/vllm-omni:v0.16.0 \
     --model Qwen/Qwen3-Omni-30B-A3B-Instruct --port 8091
 ```
 
