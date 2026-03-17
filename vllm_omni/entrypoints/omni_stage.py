@@ -616,28 +616,17 @@ class OmniStage:
         If graceful shutdown fails, forcefully terminates the process.
         Handles both multiprocessing Process and Ray Actor.
         """
-        if self._in_q is not None:
+        in_q = self._in_q
+        out_q = self._out_q
+
+        if in_q is not None:
             try:
-                self._in_q.put_nowait(SHUTDOWN_TASK)
+                # Prefer a blocking put to reduce the chance that shutdown
+                # is dropped when queue/socket buffers are momentarily full.
+                in_q.put(SHUTDOWN_TASK)
             except Exception as e:
-                # Queue may already be closed by the weak-ref cleanup
-                # (e.g. ZmqQueue socket closed) — this is expected.
+                # Queue may already be closed by cleanup paths.
                 logger.debug("Failed to send shutdown to in_q: %s", e)
-            close_fn = getattr(self._in_q, "close", None)
-            if callable(close_fn):
-                try:
-                    close_fn()
-                except Exception:
-                    pass
-            self._in_q = None
-        if self._out_q is not None:
-            close_fn = getattr(self._out_q, "close", None)
-            if callable(close_fn):
-                try:
-                    close_fn()
-                except Exception:
-                    pass
-            self._out_q = None
 
         if self._ray_actor is not None:
             kill_ray_actor(self._ray_actor)
@@ -645,7 +634,7 @@ class OmniStage:
             self._ray_task_ref = None
         elif self._proc is not None:
             try:
-                self._proc.join(timeout=5)
+                self._proc.join(timeout=10)
             except Exception as e:
                 logger.debug("join() failed: %s", e)
             if self._proc.is_alive():
@@ -653,6 +642,36 @@ class OmniStage:
                     self._proc.terminate()
                 except Exception as e:
                     logger.warning("terminate() failed: %s", e)
+                try:
+                    self._proc.join(timeout=5)
+                except Exception as e:
+                    logger.debug("join() after terminate failed: %s", e)
+            if self._proc.is_alive():
+                try:
+                    self._proc.kill()
+                except Exception as e:
+                    logger.warning("kill() failed: %s", e)
+                try:
+                    self._proc.join(timeout=3)
+                except Exception as e:
+                    logger.debug("join() after kill failed: %s", e)
+
+        if in_q is not None:
+            close_fn = getattr(in_q, "close", None)
+            if callable(close_fn):
+                try:
+                    close_fn()
+                except Exception:
+                    pass
+        if out_q is not None:
+            close_fn = getattr(out_q, "close", None)
+            if callable(close_fn):
+                try:
+                    close_fn()
+                except Exception:
+                    pass
+        self._in_q = None
+        self._out_q = None
 
     def submit(self, payload: dict[str, Any]) -> None:
         """Submit a task to the stage worker.

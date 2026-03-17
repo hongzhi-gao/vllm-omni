@@ -24,7 +24,7 @@ from vllm_omni.entrypoints.cfg_companion_tracker import CfgCompanionTracker
 from vllm_omni.entrypoints.client_request_state import ClientRequestState
 from vllm_omni.entrypoints.omni import OmniBase
 from vllm_omni.entrypoints.omni_stage import OmniStage
-from vllm_omni.entrypoints.stage_utils import SHUTDOWN_TASK, OmniStageTaskType
+from vllm_omni.entrypoints.stage_utils import OmniStageTaskType
 from vllm_omni.entrypoints.stage_utils import maybe_load_from_ipc as _load
 from vllm_omni.entrypoints.utils import (
     get_final_stage_id_for_e2e,
@@ -51,11 +51,14 @@ def _weak_close_cleanup_async(
         except Exception as e:
             logger.warning("Failed to close inline diffusion engine: %s", e)
     if stage_list:
-        for q in stage_in_queues:
+        # Stop workers first, then close queues. Closing queues early can
+        # prevent workers from receiving shutdown tasks.
+        for stage in stage_list:
             try:
-                q.put_nowait(SHUTDOWN_TASK)
+                stage.stop_stage_worker()
             except Exception as e:
-                logger.warning(f"Failed to send shutdown signal to stage input queue: {e}")
+                logger.warning(f"Failed to stop stage worker: {e}")
+        for q in stage_in_queues:
             close_fn = getattr(q, "close", None)
             if callable(close_fn):
                 close_fn()
@@ -63,11 +66,6 @@ def _weak_close_cleanup_async(
             close_fn = getattr(q, "close", None)
             if callable(close_fn):
                 close_fn()
-        for stage in stage_list:
-            try:
-                stage.stop_stage_worker()
-            except Exception as e:
-                logger.warning(f"Failed to stop stage worker: {e}")
     try_close_ray(ray_pg)
     # Cancel output handler
     if output_handler is not None:

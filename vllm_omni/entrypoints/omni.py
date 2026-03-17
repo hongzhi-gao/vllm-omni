@@ -38,7 +38,7 @@ from vllm_omni.distributed.ray_utils.utils import (
 )
 from vllm_omni.entrypoints.cfg_companion_tracker import CfgCompanionTracker
 from vllm_omni.entrypoints.omni_stage import OmniStage
-from vllm_omni.entrypoints.stage_utils import SHUTDOWN_TASK, OmniStageTaskType
+from vllm_omni.entrypoints.stage_utils import OmniStageTaskType
 from vllm_omni.entrypoints.stage_utils import maybe_load_from_ipc as _load
 from vllm_omni.entrypoints.utils import (
     filter_dataclass_kwargs,
@@ -72,11 +72,14 @@ def _weak_close_cleanup(
 ):
     """Weak reference cleanup function for OmniBase instances."""
     if stage_list:
-        for q in stage_in_queues:
+        # Stop workers first, then close queues. Closing queues too early can
+        # drop shutdown signals and leave engine subprocesses orphaned.
+        for stage in stage_list:
             try:
-                q.put_nowait(SHUTDOWN_TASK)
+                stage.stop_stage_worker()
             except Exception as e:
-                logger.warning(f"Failed to send shutdown signal to stage input queue: {e}")
+                logger.warning(f"Failed to stop stage worker: {e}")
+        for q in stage_in_queues:
             close_fn = getattr(q, "close", None)
             if callable(close_fn):
                 close_fn()
@@ -84,11 +87,6 @@ def _weak_close_cleanup(
             close_fn = getattr(q, "close", None)
             if callable(close_fn):
                 close_fn()
-        for stage in stage_list:
-            try:
-                stage.stop_stage_worker()
-            except Exception as e:
-                logger.warning(f"Failed to stop stage worker: {e}")
     try_close_ray(ray_pg)
 
     # Gracefully shutdown handshake server thread
