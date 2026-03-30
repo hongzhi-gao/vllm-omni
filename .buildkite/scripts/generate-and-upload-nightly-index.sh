@@ -51,11 +51,11 @@ $PYTHON .buildkite/scripts/generate-nightly-index.py \
 echo "Uploading indices to $S3_COMMIT_PREFIX"
 aws s3 cp --recursive "$INDICES_OUTPUT_DIR/" "$S3_COMMIT_PREFIX"
 
-# copy to /omni/nightly/ only if it is on the main branch and not a PR
-if [[ "$BUILDKITE_BRANCH" == "main" && "$BUILDKITE_PULL_REQUEST" == "false" ]]; then
-    echo "Uploading indices to overwrite /omni/nightly/"
-    aws s3 cp --recursive "$INDICES_OUTPUT_DIR/" "s3://$BUCKET/omni/nightly/"
-fi
+# copy to /omni/nightly/
+# TODO: restrict to main branch only after testing:
+#   if [[ "$BUILDKITE_BRANCH" == "main" && "$BUILDKITE_PULL_REQUEST" == "false" ]]; then
+echo "Uploading indices to overwrite /omni/nightly/"
+aws s3 cp --recursive "$INDICES_OUTPUT_DIR/" "s3://$BUCKET/omni/nightly/"
 
 # detect version from any wheel in the commit directory
 first_wheel_key=$($PYTHON -c "import json; obj=json.load(open('$obj_json')); print(next((c['Key'] for c in obj.get('Contents', []) if c['Key'].endswith('.whl')), ''))")
