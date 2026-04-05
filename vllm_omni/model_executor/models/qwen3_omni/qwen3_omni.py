@@ -3,10 +3,12 @@
 # Copyright 2025 The Qwen team.
 """Inference-only Qwen3-Omni-Moe unified model (thinker + talker + code2wav)."""
 
-from collections.abc import Iterable
+import asyncio
+from collections.abc import AsyncGenerator, Iterable
 from functools import cached_property
 from typing import Any
 
+import numpy as np
 import torch
 import torch.nn as nn
 from transformers.models.qwen3_omni_moe.configuration_qwen3_omni_moe import (
@@ -15,9 +17,11 @@ from transformers.models.qwen3_omni_moe.configuration_qwen3_omni_moe import (
     Qwen3OmniMoeTalkerConfig,
     Qwen3OmniMoeThinkerConfig,
 )
-from vllm.config import VllmConfig
+from vllm.config import ModelConfig, VllmConfig
+from vllm.inputs import PromptType, TokensPrompt
 from vllm.logger import init_logger
-from vllm.model_executor.models.interfaces import SupportsMRoPE, SupportsMultiModal, SupportsPP
+from vllm.model_executor.models.interfaces import SupportsMRoPE, SupportsMultiModal, SupportsPP, SupportsRealtime
+from vllm.model_executor.models.qwen3_asr_realtime import Qwen3ASRRealtimeBuffer
 from vllm.model_executor.models.qwen3_omni_moe_thinker import (
     Qwen3OmniMoeConditionalGenerationMixin,
 )
@@ -25,6 +29,8 @@ from vllm.model_executor.models.utils import init_vllm_registered_model, maybe_p
 from vllm.multimodal import MULTIMODAL_REGISTRY
 from vllm.multimodal.inputs import MultiModalFeatureSpec
 from vllm.sequence import IntermediateTensors
+from vllm.tokenizers import cached_tokenizer_from_config
+from vllm.transformers_utils.processor import cached_processor_from_config
 from vllm.v1.outputs import SamplerOutput
 from vllm.v1.sample.metadata import SamplingMetadata
 from vllm.v1.sample.sampler import Sampler
@@ -33,6 +39,7 @@ from vllm_omni.model_executor.custom_process_mixin import CustomProcessMixin
 from vllm_omni.model_executor.models.output_templates import OmniOutput
 from vllm_omni.model_executor.models.qwen3_omni.qwen3_omni_moe_thinker import (
     Qwen3OmniMoeThinkerDummyInputsBuilder,
+    Qwen3OmniMoeThinkerForConditionalGeneration,
     Qwen3OmniMoeThinkerMultiModalProcessor,
     Qwen3OmniMoeThinkerProcessingInfo,
 )
@@ -74,7 +81,13 @@ _REAL_BUFFER_KEY = "thinker_prefill_embeddings"
     dummy_inputs=Qwen3OmniMoeThinkerDummyInputsBuilder,
 )
 class Qwen3OmniMoeForConditionalGeneration(
-    nn.Module, SupportsMultiModal, SupportsPP, Qwen3OmniMoeConditionalGenerationMixin, CustomProcessMixin, SupportsMRoPE
+    nn.Module,
+    SupportsMultiModal,
+    SupportsPP,
+    Qwen3OmniMoeConditionalGenerationMixin,
+    CustomProcessMixin,
+    SupportsMRoPE,
+    SupportsRealtime,
 ):
     """
     Unified Qwen3 Omni MoE model combining thinker, talker, and code2wav.
@@ -87,6 +100,8 @@ class Qwen3OmniMoeForConditionalGeneration(
     Usage:
         Set `model_stage` in vllm_config to one of: "thinker", "talker", "code2wav"
     """
+
+    realtime_max_tokens = 64
 
     def __init__(self, *, vllm_config: VllmConfig, prefix: str = ""):
         super().__init__()
@@ -200,6 +215,46 @@ class Qwen3OmniMoeForConditionalGeneration(
         self.make_empty_intermediate_tensors = (
             self.thinker.make_empty_intermediate_tensors if self.model_stage == "thinker" else lambda: None
         )
+
+    @classmethod
+    async def buffer_realtime_audio(
+        cls,
+        audio_stream: AsyncGenerator[np.ndarray, None],
+        input_stream: asyncio.Queue[list[int]],
+        model_config: ModelConfig,
+    ) -> AsyncGenerator[PromptType, None]:
+        processor = cached_processor_from_config(model_config)
+        feature_extractor = processor.feature_extractor
+        sampling_rate = feature_extractor.sampling_rate
+        tokenizer = cached_tokenizer_from_config(model_config)
+
+        # Use a small segment size for low-latency streaming.
+        segment_duration_s = 5.0
+        buffer = Qwen3ASRRealtimeBuffer(
+            sampling_rate=sampling_rate,
+            segment_duration_s=segment_duration_s,
+        )
+
+        audio_placeholder = Qwen3OmniMoeThinkerForConditionalGeneration.get_placeholder_str("audio", 0)
+        prompt_template = f"<|im_start|>user\n{audio_placeholder}<|im_end|>\n<|im_start|>assistant\n"
+
+        prompt_token_ids = tokenizer.encode(prompt_template)
+
+        async for audio_chunk in audio_stream:
+            buffer.write_audio(audio_chunk)
+
+            while (segment := buffer.read_audio()) is not None:
+                yield TokensPrompt(
+                    prompt_token_ids=prompt_token_ids,
+                    multi_modal_data={"audio": segment},
+                )
+
+        remaining = buffer.flush()
+        if remaining is not None and len(remaining) > 0:
+            yield TokensPrompt(
+                prompt_token_ids=prompt_token_ids,
+                multi_modal_data={"audio": remaining},
+            )
 
     # ==================== Device utilities ====================
 
@@ -335,26 +390,13 @@ class Qwen3OmniMoeForConditionalGeneration(
                 # special case for profile run
                 input_ids = torch.zeros(inputs_embeds.shape[0], dtype=torch.long, device=inputs_embeds.device)
 
+            seq_token_counts: list[int] | None = kwargs.get("seq_token_counts")
+            buffer_list: list[dict] | None = kwargs.get("model_intermediate_buffer") or runtime_additional_information
+
             # Ensure we have base embeddings when only ids are provided
             if inputs_embeds is None and input_ids is not None:
                 inputs_embeds = self.talker.embed_input_ids(input_ids)
 
-            # TODO(Peiqi): temporal hack here to support voice_type.
-            if not hasattr(self, "voice_type"):
-                self.voice_type = voice_type
-
-            # When seq_token_counts and model_intermediate_buffer are
-            # provided (v2 runner path), run preprocess + MTP + postprocess
-            # inside forward so the runner stays model-agnostic.
-            seq_token_counts: list[int] | None = kwargs.get("seq_token_counts")
-            buffer_list: list[dict] | None = kwargs.get("model_intermediate_buffer")
-            if seq_token_counts is not None and buffer_list is not None:
-                input_ids, inputs_embeds = self._talker_v2_preprocess_and_mtp(
-                    input_ids,
-                    inputs_embeds,
-                    seq_token_counts,
-                    buffer_list,
-                )
             # Run talker forward
             with torch.inference_mode():
                 talker_hidden = self.talker.forward(
@@ -824,7 +866,6 @@ class Qwen3OmniMoeForConditionalGeneration(
         update_dict: dict[str, dict] = {}
 
         voice_type = info_dict.get("speaker")
-        logger.info("talker_preprocess_prefill speaker: %s", voice_type)
         if voice_type is not None and isinstance(voice_type, (list, tuple)) and len(voice_type) > 0:
             voice_type = voice_type[0]
         if not isinstance(voice_type, str) or not voice_type.strip():

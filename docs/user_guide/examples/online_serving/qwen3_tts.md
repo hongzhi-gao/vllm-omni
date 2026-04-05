@@ -237,11 +237,15 @@ List all available voices/speakers from the loaded model, including both built-i
       "consent": "user_consent_id",
       "created_at": 1738660000,
       "file_size": 1024000,
-      "mime_type": "audio/wav"
+      "mime_type": "audio/wav",
+      "ref_text": "The exact transcript of the audio sample.",
+      "speaker_description": "warm narrator"
     }
   ]
 }
 ```
+
+Fields `ref_text` and `speaker_description` are omitted per-entry when not provided at upload time.
 
 #### POST /v1/audio/voices
 
@@ -252,6 +256,7 @@ Upload a new voice sample for voice cloning in Base task TTS requests.
 - `consent` (required): Consent recording ID
 - `name` (required): Name for the new voice
 - `ref_text` (optional): Transcript of the audio. Enables in-context voice cloning (higher quality).
+- `speaker_description` (optional): Free-form description of the voice (e.g. "warm narrator", "energetic presenter"). Stored as metadata.
 
 **Response Example:**
 ```json
@@ -262,18 +267,23 @@ Upload a new voice sample for voice cloning in Base task TTS requests.
     "consent": "user_consent_id",
     "created_at": 1738660000,
     "mime_type": "audio/wav",
-    "file_size": 1024000
+    "file_size": 1024000,
+    "ref_text": "The exact transcript of the audio sample.",
+    "speaker_description": "warm narrator"
   }
 }
 ```
 
+Fields `ref_text` and `speaker_description` are omitted when not provided at upload time.
+
 **Usage Example:**
 ```bash
-curl -X POST http://localhost:8000/v1/audio/voices \
+curl -X POST http://localhost:8091/v1/audio/voices \
   -F "audio_sample=@/path/to/voice_sample.wav" \
   -F "consent=user_consent_id" \
   -F "name=custom_voice_1" \
-  -F "ref_text=The exact transcript of the audio sample."
+  -F "ref_text=The exact transcript of the audio sample." \
+  -F "speaker_description=warm narrator"
 ```
 
 ### Endpoint
@@ -310,7 +320,7 @@ Returns binary audio data with appropriate `Content-Type` header (e.g., `audio/w
 
 ### Voice and language (summary)
 
-- **Speaker**: Use the `speaker` request field to select the speaker (e.g., `vivian`, `ryan`, `aiden`). List available speakers with `GET /v1/audio/voices`.
+- **Speaker**: Use the `voice` request field to select the speaker (e.g., `vivian`, `ryan`, `aiden`). List available speakers with `GET /v1/audio/voices`.
 - **Language**: Use the `language` field for the codec language tag (`Auto`, `Chinese`, `English`, etc.). Default is `Auto` for automatic detection.
 - **CustomVoice**: Requires a valid `voice` from the model’s speaker set. **VoiceDesign**: Use `instructions` to describe the voice. **Base**: Use `ref_audio` and `ref_text` for voice cloning.
 
