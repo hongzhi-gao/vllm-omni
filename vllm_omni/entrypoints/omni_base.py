@@ -21,7 +21,7 @@ from vllm_omni.model_executor.model_loader.weight_utils import download_weights_
 from vllm_omni.outputs import OmniRequestOutput
 
 _omni_use_v2 = os.environ.get("VLLM_OMNI_USE_V2_RUNNER", "0")
-os.environ["VLLM_USE_V2_MODEL_RUNNER"] = _omni_use_v2
+os.environ.setdefault("VLLM_USE_V2_MODEL_RUNNER", _omni_use_v2)
 envs.VLLM_USE_V2_MODEL_RUNNER = _omni_use_v2 == "1"
 if TYPE_CHECKING:
     from vllm_omni.engine.arg_utils import OmniEngineArgs

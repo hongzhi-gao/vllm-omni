@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 import janus
 import torch
 from omegaconf import OmegaConf
+from vllm import envs
 from vllm.engine.arg_utils import EngineArgs
 from vllm.inputs import PromptType
 from vllm.logger import init_logger
@@ -84,6 +85,10 @@ from vllm_omni.platforms import current_omni_platform
 
 if TYPE_CHECKING:
     from vllm_omni.engine.arg_utils import OmniEngineArgs
+
+_omni_use_v2 = os.environ.get("VLLM_OMNI_USE_V2_RUNNER", "0")
+os.environ.setdefault("VLLM_USE_V2_MODEL_RUNNER", _omni_use_v2)
+envs.VLLM_USE_V2_MODEL_RUNNER = _omni_use_v2 == "1"
 
 logger = init_logger(__name__)
 
