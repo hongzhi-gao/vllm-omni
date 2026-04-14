@@ -584,3 +584,20 @@ steps:
                 hostPath:
                   path: /mnt/hf-cache
                   type: DirectoryOrCreate
+
+  - label: "ModelRunner V2 Unit Test"
+    depends_on: upload-ready-pipeline
+    commands:
+      - "timeout 20m pytest -s -v tests/worker_v2"
+    agents:
+      queue: "gpu_1_queue"
+    plugins:
+      - docker#v5.2.0:
+          image: public.ecr.aws/q9t5s3a7/vllm-ci-test-repo:$BUILDKITE_COMMIT
+          always-pull: true
+          propagate-environment: true
+          environment:
+            - "HF_HOME=/fsx/hf_cache"
+            - "HF_TOKEN"
+          volumes:
+            - "/fsx/hf_cache:/fsx/hf_cache"
