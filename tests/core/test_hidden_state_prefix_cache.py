@@ -1,4 +1,4 @@
-"""Hidden-state prefix cache: worker-level correctness (complements tests/core/test_prefix_cache.py)."""
+"""Hidden-state prefix cache correctness tests for OmniTensorPrefixCache merge paths."""
 
 from types import SimpleNamespace
 
@@ -146,7 +146,7 @@ def test_dual_prefix_hits_shared_vs_distinct_block_tables():
     assert merged["ra"].shape == (prefix_len + sched_a, HIDDEN_SIZE)
     assert merged["rb"].shape == (prefix_len + sched_b, HIDDEN_SIZE)
 
-    # --- Distinct prefixes: ra reads blocks 2–3, rb reads blocks 0–1 ---
+    # --- Distinct prefixes: ra reads blocks 2-3, rb reads blocks 0-1 ---
     cache2 = OmniTensorPrefixCache(
         num_blocks=NUM_BLOCKS,
         block_size=BLOCK_SIZE,
