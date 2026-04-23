@@ -40,7 +40,8 @@ def parse_args() -> argparse.Namespace:
         "black-forest-labs/FLUX.1-dev, black-forest-labs/FLUX.2-klein-9B, "
         "black-forest-labs/FLUX.2-dev, tencent/HunyuanImage-3.0-Instruct, "
         "meituan-longcat/LongCat-Image, OvisAI/Ovis-Image, "
-        "stabilityai/stable-diffusion-3.5-medium, Tongyi-MAI/Z-Image-Turbo and etc.",
+        "stabilityai/stable-diffusion-3-medium-diffusers, stabilityai/stable-diffusion-3.5-medium, "
+        "Tongyi-MAI/Z-Image-Turbo and etc.",
     )
     parser.add_argument(
         "--stage-configs-path",
@@ -270,9 +271,23 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _generator_device() -> str:
+    """Resolve torch.Generator device; fail fast with a clear message if no backend."""
+    dt = getattr(current_omni_platform, "device_type", None) or ""
+    if dt:
+        return dt
+    if torch.cuda.is_available():
+        return "cuda"
+    raise RuntimeError(
+        "No compute device available for diffusion (Omni platform device_type is empty and "
+        "torch.cuda.is_available() is False). On WSL, fix the NVIDIA driver until "
+        "`nvidia-smi` works, then rerun this script."
+    )
+
+
 def main():
     args = parse_args()
-    generator = torch.Generator(device=current_omni_platform.device_type).manual_seed(args.seed)
+    generator = torch.Generator(device=_generator_device()).manual_seed(args.seed)
     use_nextstep = is_nextstep_model(args.model)
 
     cache_config = None
