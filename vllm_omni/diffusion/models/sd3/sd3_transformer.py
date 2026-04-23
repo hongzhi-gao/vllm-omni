@@ -29,7 +29,6 @@ logger = init_logger(__name__)
 
 
 def quant_config_is_fp8(quant_config: "QuantizationConfig | None") -> bool:
-    """True when FP8 quantization is active (plain fp8 or component routing to fp8)."""
     if quant_config is None:
         return False
     try:
@@ -48,7 +47,6 @@ def quant_config_is_fp8(quant_config: "QuantizationConfig | None") -> bool:
 
 
 def _contiguous_if_needed(x: torch.Tensor) -> torch.Tensor:
-    """Avoid redundant copies when linear/attention backends already see contiguous storage."""
     return x if x.is_contiguous() else x.contiguous()
 
 
@@ -99,8 +97,6 @@ class FeedForward(nn.Module):
             inner_dim = int(dim * mult)
         dim_out = dim_out if dim_out is not None else dim
 
-        # Online FP8: quantizing the up-proj (first linear) often hurts DiT quality more than
-        # the down-proj; optional path matches common "down-only" / partial-FFN recipes.
         proj_quant = (
             None if (quantize_down_proj_only and quant_config is not None) else quant_config
         )
@@ -378,7 +374,6 @@ class SD3TransformerBlock(nn.Module):
                 f"only support `ada_norm_continuous`, `ada_norm_zero`"
             )
 
-        # FP8: attention + context MLP stay BF16; image FF uses FP8 on down-proj only (see FeedForward).
         self.attn = SD3CrossAttention(
             dim=dim,
             num_heads=num_attention_heads,
@@ -564,7 +559,6 @@ class SD3Transformer2DModel(nn.Module):
             quant_config=None,
             prefix="proj_out",
         )
-        # FP8-only: return pooled blocks to allocator before norm_out/proj_out (BF16 path skips).
         self._fp8_dit_post_blocks_empty_cache = quant_config_is_fp8(quant_config)
 
     def forward(
