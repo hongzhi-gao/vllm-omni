@@ -413,7 +413,7 @@ class SD3TransformerBlock(nn.Module):
             activation_fn="gelu-approximate",
             quant_config=quant_config,
             prefix=f"{prefix}.ff",
-            quantize_down_proj_only=quant_config is not None,
+            quantize_down_proj_only=quant_config_is_fp8(quant_config),
         )
 
         if not context_pre_only:
