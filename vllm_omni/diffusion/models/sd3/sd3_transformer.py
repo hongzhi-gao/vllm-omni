@@ -97,9 +97,7 @@ class FeedForward(nn.Module):
             inner_dim = int(dim * mult)
         dim_out = dim_out if dim_out is not None else dim
 
-        proj_quant = (
-            None if (quantize_down_proj_only and quant_config is not None) else quant_config
-        )
+        proj_quant = None if (quantize_down_proj_only and quant_config is not None) else quant_config
         row_quant = quant_config
 
         if activation_fn == "gelu-approximate":
@@ -559,7 +557,6 @@ class SD3Transformer2DModel(nn.Module):
             quant_config=None,
             prefix="proj_out",
         )
-        self._fp8_dit_post_blocks_empty_cache = quant_config_is_fp8(quant_config)
 
     def forward(
         self,
@@ -603,13 +600,10 @@ class SD3Transformer2DModel(nn.Module):
                 temb=temb,
             )
 
-        if self._fp8_dit_post_blocks_empty_cache and torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
         hidden_states = self.norm_out(hidden_states, temb)
         hidden_states = self.proj_out(_contiguous_if_needed(hidden_states))
 
-        if isinstance(hidden_states, (tuple, list)):
+        if isinstance(hidden_states, tuple | list):
             hidden_states = hidden_states[0]
 
         # unpatchify
