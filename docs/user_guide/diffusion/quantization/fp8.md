@@ -66,6 +66,16 @@ The available `ignored_layers` names depend on the model architecture (e.g., `to
 | HunyuanImage-3 | `tencent/HunyuanImage3` | All layers | None |
 | HunyuanVideo-1.5 | `hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_t2v`, `720p_t2v`, `480p_i2v` | All layers | None |
 | Helios | `BestWishYsh/Helios-Base`, `BestWishYsh/Helios-Mid`, `BestWishYsh/Helios-Distilled` | All layers | None |
+| Stable Diffusion 3.0 Medium (DiT) | `stabilityai/stable-diffusion-3-medium-diffusers` | Conservative online FP8 | None (sensitive paths stay BF16 in code) |
+| Stable Diffusion 3.5 Medium (DiT) | `stabilityai/stable-diffusion-3.5-medium` | Conservative online FP8 | None (sensitive paths stay BF16 in code) |
+
+**SD3.0 与 SD3.5** 共用同一套 `StableDiffusion3Pipeline` / `SD3Transformer2DModel` 实现；FP8 策略相同，仅 checkpoint 与 `transformer/config.json` 不同。DiT 使用 **dynamic (online) FP8**，布局与 Hunyuan 等对 attention 的保守做法一致：**attention 与 context-stream 路径保持 BF16**；图像支路 FFN 仅 **down-projection** 走 FP8（`quantize_down_proj_only`）。文本编码器与 VAE 与默认 BF16 管线一致，仍为 BF16/FP32。一键生成 BF16/FP8 并排对比图：`python benchmarks/diffusion/sd3_fp8_compare_images.py --help`。PR 正文：[PR_SD3_FP8.md](PR_SD3_FP8.md)。另见 [sd3_fp8_pr_template.md](sd3_fp8_pr_template.md)、[sd3_fp8_three_prompts.md](sd3_fp8_three_prompts.md)、[sd3_fp8_testing.md](sd3_fp8_testing.md)。
+
+### Stable Diffusion 3 quantization matrix (DiT)
+
+| Type | Attn | MLP | Notes |
+|------|:----:|:---:|-------|
+| D (dynamic / online FP8) | ❌ BF16 | ✅ (image-stream FFN **down-proj only**) | Context FFN and projections BF16; text encoders / VAE BF16. GitHub PR 表格中可在 MLP 列附上 PR 编号以便追溯。 |
 
 ## Combining with Other Features
 

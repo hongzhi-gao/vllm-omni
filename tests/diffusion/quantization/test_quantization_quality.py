@@ -88,6 +88,24 @@ QUALITY_CONFIGS = [
         seed=142,
         num_inference_steps=20,
     ),
+    QualityTestConfig(
+        id="fp8_sd3_medium",
+        model="stabilityai/stable-diffusion-3-medium-diffusers",
+        quantization="fp8",
+        task="t2i",
+        prompt="a cup of coffee on a wooden table, morning light",
+        max_lpips=0.25,
+        num_inference_steps=20,
+    ),
+    QualityTestConfig(
+        id="fp8_sd3_5_medium",
+        model="stabilityai/stable-diffusion-3.5-medium",
+        quantization="fp8",
+        task="t2i",
+        prompt="a cup of coffee on a wooden table, morning light",
+        max_lpips=0.25,
+        num_inference_steps=20,
+    ),
 ]
 
 
