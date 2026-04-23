@@ -25,10 +25,10 @@ from vllm_omni.diffusion.models.sd3.sd3_transformer import (
 )
 from vllm_omni.diffusion.profiler.diffusion_pipeline_profiler import DiffusionPipelineProfilerMixin
 from vllm_omni.diffusion.request import OmniDiffusionRequest
-from vllm_omni.platforms import current_omni_platform
 from vllm_omni.model_executor.model_loader.weight_utils import (
     download_weights_from_hf_specific,
 )
+from vllm_omni.platforms import current_omni_platform
 
 logger = logging.getLogger(__name__)
 
