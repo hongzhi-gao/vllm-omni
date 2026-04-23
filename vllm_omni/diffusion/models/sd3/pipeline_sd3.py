@@ -196,7 +196,6 @@ class StableDiffusion3Pipeline(nn.Module, CFGParallelMixin, DiffusionPipelinePro
         self.setup_diffusion_pipeline_profiler(
             enable_diffusion_pipeline_profiler=self.od_config.enable_diffusion_pipeline_profiler
         )
-        # FP8-only VRAM helpers (BF16: all branches guarded off; numerics unchanged).
         self._sd3_fp8_vram_extras = quant_config_is_fp8(od_config.quantization_config)
 
     def _sd3_fp8_maybe_empty_cuda_cache(self) -> None:
@@ -697,7 +696,6 @@ class StableDiffusion3Pipeline(nn.Module, CFGParallelMixin, DiffusionPipelinePro
                 current_omni_platform.empty_cache()
             self._sd3_fp8_maybe_empty_cuda_cache()
 
-        # Match DiT / scheduler compute dtype (text towers may emit float16 on some GPUs).
         compute_dtype = self.od_config.dtype
         prompt_embeds = prompt_embeds.to(dtype=compute_dtype)
         pooled_prompt_embeds = pooled_prompt_embeds.to(dtype=compute_dtype)
@@ -734,8 +732,6 @@ class StableDiffusion3Pipeline(nn.Module, CFGParallelMixin, DiffusionPipelinePro
         )
 
         self._current_timestep = None
-        # Conditioning tensors are not used after denoising; drop refs before VAE to trim peak VRAM
-        # (same idea as Wan2.2 empty_cache before decode).
         del prompt_embeds, pooled_prompt_embeds
         if do_cfg:
             del negative_prompt_embeds, negative_pooled_prompt_embeds
