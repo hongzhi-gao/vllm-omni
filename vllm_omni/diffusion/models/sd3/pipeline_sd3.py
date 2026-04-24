@@ -161,20 +161,25 @@ class StableDiffusion3Pipeline(nn.Module, CFGParallelMixin, DiffusionPipelinePro
         self.tokenizer_2 = CLIPTokenizer.from_pretrained(
             model, subfolder="tokenizer_2", local_files_only=local_files_only
         )
-        self.tokenizer_3 = T5Tokenizer.from_pretrained(
-            model, subfolder="tokenizer_3", local_files_only=local_files_only
-        )
         self.text_encoder = CLIPTextModelWithProjection.from_pretrained(
             model, subfolder="text_encoder", local_files_only=local_files_only
         )
         self.text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(
             model, subfolder="text_encoder_2", local_files_only=local_files_only
         )
-        self.text_encoder_3 = T5EncoderModel.from_pretrained(
-            model,
-            subfolder="text_encoder_3",
-            local_files_only=local_files_only,
-        )
+        if od_config.sd3_disable_t5_text_encoder:
+            self.tokenizer_3 = None
+            self.text_encoder_3 = None
+            logger.info("SD3: T5 text encoder disabled (sd3_disable_t5_text_encoder=True); using zero T5 embeddings.")
+        else:
+            self.tokenizer_3 = T5Tokenizer.from_pretrained(
+                model, subfolder="tokenizer_3", local_files_only=local_files_only
+            )
+            self.text_encoder_3 = T5EncoderModel.from_pretrained(
+                model,
+                subfolder="text_encoder_3",
+                local_files_only=local_files_only,
+            )
         self.transformer = SD3Transformer2DModel(
             od_config=od_config,
             quant_config=od_config.quantization_config,
@@ -348,7 +353,7 @@ class StableDiffusion3Pipeline(nn.Module, CFGParallelMixin, DiffusionPipelinePro
         max_sequence_length: int = 256,
         dtype: torch.dtype | None = None,
     ):
-        dtype = dtype or self.text_encoder_3.dtype
+        dtype = dtype or (self.text_encoder_3.dtype if self.text_encoder_3 is not None else self.od_config.dtype)
 
         prompt = [prompt] if isinstance(prompt, str) else prompt
         batch_size = len(prompt)

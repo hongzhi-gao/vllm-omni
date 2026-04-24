@@ -146,6 +146,14 @@ def parse_args() -> argparse.Namespace:
         help="Enable layerwise (blockwise) offloading on DiT modules.",
     )
     parser.add_argument(
+        "--sd3-disable-t5",
+        action="store_true",
+        help=(
+            "[SD3 / SD3.5 only] By default, T5-XXL (text_encoder_3) is loaded. "
+            "Pass this flag to skip T5 and use zero T5 embeddings to save VRAM (quality trade-off)."
+        ),
+    )
+    parser.add_argument(
         "--quantization",
         type=str,
         default=None,
@@ -361,6 +369,7 @@ def main():
         "enable_diffusion_pipeline_profiler": args.enable_diffusion_pipeline_profiler,
         "init_timeout": args.init_timeout,
         "stage_init_timeout": args.stage_init_timeout,
+        "sd3_disable_t5_text_encoder": args.sd3_disable_t5,
         **lora_args,
         **quant_kwargs,
     }
@@ -382,6 +391,9 @@ def main():
     print(f"  Inference steps: {args.num_inference_steps}")
     print(f"  Cache backend: {cache_backend if cache_backend else 'None (no acceleration)'}")
     print(f"  Quantization: {args.quantization if args.quantization else 'None (BF16)'}")
+    print(
+        f"  SD3/3.5 T5-XXL: {'not loaded (zero T5, --sd3-disable-t5)' if args.sd3_disable_t5 else 'loaded (default)'}"
+    )
     if ignored_layers:
         print(f"  Ignored layers: {ignored_layers}")
     print(

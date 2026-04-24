@@ -1266,6 +1266,7 @@ class AsyncOmniEngine:
             "num_weight_load_threads": kwargs.get("num_weight_load_threads", 4),
             "quantization": kwargs.get("quantization", None),
             "enable_diffusion_pipeline_profiler": kwargs.get("enable_diffusion_pipeline_profiler", False),
+            "sd3_disable_t5_text_encoder": kwargs.get("sd3_disable_t5_text_encoder", False),
             **(
                 {
                     "profiler_config": asdict(kwargs["profiler_config"])
