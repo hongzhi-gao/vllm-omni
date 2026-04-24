@@ -97,8 +97,12 @@ class FeedForward(nn.Module):
             inner_dim = int(dim * mult)
         dim_out = dim_out if dim_out is not None else dim
 
-        proj_quant = None if (quantize_down_proj_only and quant_config is not None) else quant_config
-        row_quant = quant_config
+        if quantize_down_proj_only and quant_config is not None:
+            proj_quant = None
+            row_quant = None
+        else:
+            proj_quant = quant_config
+            row_quant = quant_config
 
         if activation_fn == "gelu-approximate":
             act_fn = GELU(
