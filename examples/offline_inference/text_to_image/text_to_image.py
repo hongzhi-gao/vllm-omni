@@ -154,6 +154,23 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--use-hsdp",
+        action="store_true",
+        help="Enable HSDP (Hybrid Sharded Data Parallel) for diffusion models.",
+    )
+    parser.add_argument(
+        "--hsdp-shard-size",
+        type=int,
+        default=1,
+        help="Number of GPUs to shard weights across for HSDP.",
+    )
+    parser.add_argument(
+        "--hsdp-replicate-size",
+        type=int,
+        default=1,
+        help="Number of HSDP replica groups.",
+    )
+    parser.add_argument(
         "--quantization",
         type=str,
         default=None,
@@ -323,6 +340,9 @@ def main():
         tensor_parallel_size=args.tensor_parallel_size,
         vae_patch_parallel_size=args.vae_patch_parallel_size,
         enable_expert_parallel=args.enable_expert_parallel,
+        use_hsdp=args.use_hsdp,
+        hsdp_shard_size=args.hsdp_shard_size,
+        hsdp_replicate_size=args.hsdp_replicate_size,
     )
 
     # Check if profiling is requested via environment variable
