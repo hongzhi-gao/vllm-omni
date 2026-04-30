@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import argparse
-import os
+import json
 import time
 from pathlib import Path
 from typing import Any
@@ -28,6 +28,16 @@ def is_nextstep_model(model_name: str) -> bool:
     except Exception:
         pass
     return False
+
+
+def parse_profiler_config(value: str) -> dict[str, Any]:
+    try:
+        config = json.loads(value)
+    except json.JSONDecodeError as e:
+        raise argparse.ArgumentTypeError(f"--profiler-config must be valid JSON: {e}") from e
+    if not isinstance(config, dict):
+        raise argparse.ArgumentTypeError("--profiler-config must be a JSON object")
+    return config
 
 
 def parse_args() -> argparse.Namespace:
@@ -264,6 +274,12 @@ def parse_args() -> argparse.Namespace:
         help="Enable diffusion pipeline profiler to display stage durations.",
     )
     parser.add_argument(
+        "--profiler-config",
+        type=parse_profiler_config,
+        default=None,
+        help='JSON profiler config for torch/cuda profiling, e.g. \'{"profiler":"torch","torch_profiler_dir":"./perf"}\'.',
+    )
+    parser.add_argument(
         "--log-stats",
         action="store_true",
         help="Enable logging of diffusion pipeline stats.",
@@ -293,6 +309,10 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=("Custom system prompt. Used when --use-system-prompt is custom. "),
     )
+    current_omni_platform.pre_register_and_update(parser)
+    from vllm_omni.engine.arg_utils import nullify_stage_engine_defaults
+
+    nullify_stage_engine_defaults(parser)
     return parser.parse_args()
 
 
@@ -331,7 +351,6 @@ def main():
             #       (e.g., QwenImagePipeline or FluxPipeline)
         }
 
-    # assert args.ring_degree == 1, "Ring attention is not supported yet"
     parallel_config = DiffusionParallelConfig(
         ulysses_degree=args.ulysses_degree,
         ring_degree=args.ring_degree,
@@ -344,9 +363,7 @@ def main():
         hsdp_shard_size=args.hsdp_shard_size,
         hsdp_replicate_size=args.hsdp_replicate_size,
     )
-
-    # Check if profiling is requested via environment variable
-    profiler_enabled = bool(os.getenv("VLLM_TORCH_PROFILER_DIR"))
+    profiler_enabled = args.profiler_config is not None
 
     # Prepare LoRA kwargs for Omni initialization
     lora_args: dict[str, Any] = {}
@@ -382,11 +399,14 @@ def main():
         "cache_config": cache_config,
         "enable_cache_dit_summary": args.enable_cache_dit_summary,
         "parallel_config": parallel_config,
+        "vae_patch_parallel_size": args.vae_patch_parallel_size,
+        "enable_expert_parallel": args.enable_expert_parallel,
         "enforce_eager": args.enforce_eager,
         "enable_cpu_offload": args.enable_cpu_offload,
         "mode": "text-to-image",
         "log_stats": args.log_stats,
         "enable_diffusion_pipeline_profiler": args.enable_diffusion_pipeline_profiler,
+        "profiler_config": args.profiler_config,
         "init_timeout": args.init_timeout,
         "stage_init_timeout": args.stage_init_timeout,
         "sd3_disable_t5_text_encoder": args.sd3_disable_t5,
