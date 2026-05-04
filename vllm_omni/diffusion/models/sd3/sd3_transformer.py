@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
 from vllm_omni.diffusion.attention.layer import Attention
 from vllm_omni.diffusion.data import OmniDiffusionConfig
+from vllm_omni.quantization.component_config import ComponentQuantizationConfig
 
 logger = init_logger(__name__)
 
@@ -31,23 +32,12 @@ logger = init_logger(__name__)
 def quant_config_is_fp8(quant_config: "QuantizationConfig | None") -> bool:
     if quant_config is None:
         return False
-    try:
-        if quant_config.get_name() == "fp8":
-            return True
-    except Exception:
-        return False
-    from vllm_omni.quantization.component_config import ComponentQuantizationConfig
-
     if isinstance(quant_config, ComponentQuantizationConfig):
         d = quant_config.default_config
         if d is not None and d.get_name() == "fp8":
             return True
         return any(c is not None and c.get_name() == "fp8" for c in quant_config.component_configs.values())
-    return False
-
-
-def _contiguous_if_needed(x: torch.Tensor) -> torch.Tensor:
-    return x if x.is_contiguous() else x.contiguous()
+    return quant_config.get_name() == "fp8"
 
 
 class GELU(nn.Module):
@@ -260,7 +250,7 @@ class SD3CrossAttention(nn.Module):
         hidden_states: torch.Tensor,
         encoder_hidden_states: torch.Tensor | None = None,
     ):
-        hidden_states = _contiguous_if_needed(hidden_states)
+        hidden_states = hidden_states.contiguous()
         # Compute QKV for image stream (sample projections)
         qkv = self.to_qkv(hidden_states)
         qkv = qkv[0]
@@ -278,7 +268,7 @@ class SD3CrossAttention(nn.Module):
 
         if encoder_hidden_states is not None:
             # Compute QKV for text stream (context projections)
-            encoder_hidden_states = _contiguous_if_needed(encoder_hidden_states)
+            encoder_hidden_states = encoder_hidden_states.contiguous()
             qkv_add = self.add_kv_proj(encoder_hidden_states)
             qkv_add = qkv_add[0]
             txt_query, txt_key, txt_value = qkv_add.chunk(3, dim=-1)
@@ -316,11 +306,11 @@ class SD3CrossAttention(nn.Module):
                 hidden_states[:, :context_seqlen, :],  # Text part
             )
             if self.to_add_out is not None:
-                encoder_hidden_states, _ = self.to_add_out(_contiguous_if_needed(encoder_hidden_states))
+                encoder_hidden_states, _ = self.to_add_out(encoder_hidden_states.contiguous())
 
         # Apply output projections
         if self.to_out is not None:
-            hidden_states, _ = self.to_out[0](_contiguous_if_needed(hidden_states))
+            hidden_states, _ = self.to_out[0](hidden_states.contiguous())
 
         if encoder_hidden_states is None:
             return hidden_states
@@ -595,7 +585,7 @@ class SD3Transformer2DModel(nn.Module):
 
         hidden_states = self.pos_embed(hidden_states)
         temb = self.time_text_embed(timestep, pooled_projections)
-        encoder_hidden_states = self.context_embedder(_contiguous_if_needed(encoder_hidden_states))
+        encoder_hidden_states = self.context_embedder(encoder_hidden_states.contiguous())
 
         for block in self.transformer_blocks:
             encoder_hidden_states, hidden_states = block(
@@ -605,7 +595,7 @@ class SD3Transformer2DModel(nn.Module):
             )
 
         hidden_states = self.norm_out(hidden_states, temb)
-        hidden_states = self.proj_out(_contiguous_if_needed(hidden_states))
+        hidden_states = self.proj_out(hidden_states.contiguous())
 
         if isinstance(hidden_states, tuple | list):
             hidden_states = hidden_states[0]
